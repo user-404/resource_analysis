@@ -1,0 +1,43 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: resource_analysis
+      MYSQL_USER: resource_analysis
+      MYSQL_PASSWORD: change-me
+      MYSQL_ROOT_PASSWORD: local-root-password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pchange-me"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: mysql+pymysql://resource_analysis:change-me@mysql:3306/resource_analysis
+      APP_SECRET_KUBECONFIG_DEV: ${APP_SECRET_KUBECONFIG_DEV:-}
+      APP_SECRET_PROM_TOKEN_DEV: ${APP_SECRET_PROM_TOKEN_DEV:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: mysql+pymysql://resource_analysis:change-me@mysql:3306/resource_analysis
+      APP_SECRET_KUBECONFIG_DEV: ${APP_SECRET_KUBECONFIG_DEV:-}
+      APP_SECRET_PROM_TOKEN_DEV: ${APP_SECRET_PROM_TOKEN_DEV:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

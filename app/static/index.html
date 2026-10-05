@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kubernetes Resource Analysis</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c2733;
+      --muted: #687786;
+      --line: #dce3e9;
+      --paper: #fff;
+      --canvas: #f3f6f8;
+      --blue: #2463eb;
+      --teal: #128477;
+      --amber: #d58a15;
+      --red: #bc3f48;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding-top: 94px; color: var(--ink); background: var(--canvas); }
+    header { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; width: auto; padding: 24px max(24px, calc((100vw - 1440px) / 2)); background: #14212d; color: white; box-shadow: 0 2px 8px #10182030; }
+    header h1 { margin: 0; font-size: 21px; letter-spacing: -.02em; }
+    header p { margin: 7px 0 0; color: #b8c5d0; font-size: 13px; }
+    main { max-width: 1440px; padding: 24px; margin: auto; display: grid; gap: 18px; }
+    .layout { display: grid; grid-template-columns: minmax(310px, 365px) minmax(0, 1fr); gap: 18px; align-items: start; }
+    .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 2px 7px #1c273308; }
+    .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 15px 18px; }
+    .panel-heading h2 { margin: 0; font-size: 15px; }
+    .panel-body { padding: 18px; }
+    form { display: grid; gap: 12px; }
+    label { display: grid; gap: 5px; font-size: 12px; font-weight: 650; }
+    input, select { width: 100%; min-height: 38px; border: 1px solid #cbd5df; border-radius: 6px; background: white; color: var(--ink); padding: 8px 10px; font: inherit; font-size: 13px; }
+    input:focus, select:focus { outline: 2px solid #2463eb40; border-color: var(--blue); }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    button { border: 0; border-radius: 6px; background: var(--blue); color: white; font: inherit; font-size: 13px; font-weight: 700; padding: 10px 14px; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    button.secondary { background: #e9eef4; color: var(--ink); }
+    .help { padding: 11px 12px; margin: 0; border-radius: 6px; background: #f0f5fb; color: #4b5c6d; font-size: 11px; line-height: 1.55; }
+    .help strong { color: var(--ink); }
+    .demo-note { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid #c9d9fa; border-radius: 7px; background: #f0f5ff; color: #354d74; font-size: 12px; line-height: 1.5; }
+    .demo-note strong { color: #173b85; }
+    button.demo { background: #173b85; }
+    .message { display: none; border-radius: 6px; padding: 10px 12px; font-size: 12px; line-height: 1.45; }
+    .message.visible { display: block; }
+    .message.error { color: #8b2028; background: #fff0f0; border: 1px solid #f4c7c9; }
+    .message.success { color: #145e48; background: #eaf7f2; border: 1px solid #c6e9dc; }
+    .run-top { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+    .badge { border-radius: 99px; padding: 5px 9px; color: #425160; background: #edf1f4; font-size: 11px; font-weight: 750; text-transform: uppercase; }
+    .badge.completed { color: #116047; background: #ddf4e9; }
+    .badge.failed { color: #8b2028; background: #ffe6e7; }
+    .badge.running { color: #76500b; background: #fff2d3; }
+    .run-id { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+    .export-note { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+    .summary { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin: 16px 0; }
+    .metric { border: 1px solid var(--line); border-radius: 7px; padding: 11px 12px; min-width: 0; }
+    .metric span { display: block; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .045em; }
+    .metric strong { display: block; margin-top: 6px; font-size: 19px; font-weight: 700; }
+    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .chart-card { min-width: 0; border: 1px solid var(--line); border-radius: 7px; padding: 12px; }
+    .chart-card h3 { margin: 0; font-size: 12px; }
+    .chart-card p { margin: 4px 0 8px; font-size: 10px; color: var(--muted); }
+    .chart { display: block; width: 100%; min-height: 150px; overflow: visible; }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 10px; color: var(--muted); }
+    .workload-filters { display: grid; gap: 10px; margin: 18px 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: #fbfcfd; }
+    .workload-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+    .workload-filter-title { min-width: 72px; color: var(--muted); font-size: 11px; font-weight: 750; }
+    .type-option { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
+    .type-option input { width: 14px; min-height: 14px; margin: 0; }
+    .workload-search { flex: 1 1 260px; width: auto; }
+    .filter-count { margin: 0; color: var(--muted); font-size: 11px; }
+    .raw-detail-row > td { padding: 12px; background: #f8fafb; text-align: left; }
+    .raw-detail { display: grid; gap: 9px; }
+    .raw-detail-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
+    .raw-detail-table { min-width: 900px; font-size: 10px; }
+    .raw-detail-table th, .raw-detail-table td { padding: 7px; }
+    .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; min-width: 1100px; border-collapse: collapse; font-size: 11px; }
+    th, td { text-align: right; padding: 10px 9px; border-bottom: 1px solid #edf0f3; white-space: nowrap; }
+    th { position: sticky; top: 0; z-index: 2; color: #566574; background: #f8fafb; font-size: 10px; text-transform: uppercase; letter-spacing: .035em; }
+    th:first-child, td:first-child { position: sticky; left: 0; text-align: left; }
+    th:first-child { z-index: 3; background: #f8fafb; }
+    td:first-child { z-index: 1; background: white; }
+    td.workload { font-weight: 700; }
+    .unit { color: var(--muted); font-size: 10px; }
+    .history { display: grid; gap: 7px; max-height: 265px; overflow: auto; }
+    .history button { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; background: white; color: var(--ink); border: 1px solid var(--line); font-size: 11px; font-weight: 500; }
+    .history button:hover { border-color: var(--blue); }
+    .history small { display: block; color: var(--muted); margin-top: 3px; }
+    .cost-summary { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin: 14px 0; }
+    .cost-summary .metric strong { font-size: 17px; }
+    .cost-note { margin: -5px 0 14px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .empty { color: var(--muted); text-align: center; padding: 42px 16px; font-size: 13px; }
+    .error-details { color: #8b2028; white-space: pre-wrap; font-size: 12px; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } .summary { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 650px) { body { padding-top: 86px; } main { padding: 12px; } .chart-grid { grid-template-columns: 1fr; } .panel-body { padding: 13px; } header { padding: 19px 15px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Kubernetes Resource Analysis</h1>
+    <p>Collect namespace usage, compare allocations, and review workload recommendations.</p>
+  </header>
+  <main>
+    <div class="layout">
+      <section class="panel">
+        <div class="panel-heading"><h2>New collection</h2></div>
+        <div class="panel-body">
+          <div class="demo-note" style="margin-bottom:14px">
+            <span aria-hidden="true">✦</span>
+            <div><strong>No cluster or credentials yet?</strong> Load an instant demo with clearly labeled synthetic Kubernetes and Prometheus data. This does not contact a cluster or require secret values.</div>
+          </div>
+          <form id="collection-form">
+            <div class="form-grid">
+              <label>Environment<input name="environment" required maxlength="255" placeholder="staging"></label>
+              <label>Namespace<input name="namespace" required maxlength="63" pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?" placeholder="payments"></label>
+            </div>
+            <label>Prometheus URL<input name="prometheusUrl" type="url" required placeholder="https://prometheus.example.internal"></label>
+            <label>Kubeconfig secret reference<input name="kubeconfigSecretRef" required placeholder="env://KUBECONFIG_DEV"></label>
+            <label>Prometheus token secret reference (optional for local Prometheus)<input name="prometheusSecretRef" placeholder="env://PROM_TOKEN_DEV"></label>
+            <div class="form-grid">
+              <label>Lookback (days)<input name="daysToCollect" type="number" min="1" max="90" value="7" required></label>
+              <label>Query step (seconds)<input name="stepSeconds" type="number" min="60" max="3600" step="60" value="300" required></label>
+            </div>
+            <div class="form-grid">
+              <label>Request target utilization<input name="targetUtilization" type="number" min="0.01" max="1" step="0.01" value="0.8" required></label>
+              <label>Limit headroom multiplier<input name="limitHeadroomMultiplier" type="number" min="1" max="5" step="0.05" value="1.2" required></label>
+            </div>
+            <details>
+              <summary style="cursor:pointer;font-size:12px;font-weight:700">Optional cost rates</summary>
+              <div style="display:grid;gap:10px;margin-top:10px">
+                <label>Currency code<input name="currency" maxlength="3" pattern="[A-Z]{3}" value="USD" placeholder="USD"></label>
+                <div class="form-grid">
+                  <label>Cost per vCPU-hour<input name="cpuRatePerCoreHour" type="number" min="0.000001" step="any" placeholder="Set your rate"></label>
+                  <label>Cost per GiB-hour<input name="memoryRatePerGiBHour" type="number" min="0.000001" step="any" placeholder="Set your rate"></label>
+                </div>
+              </div>
+            </details>
+            <p class="help"><strong>Cost estimates:</strong> provide both rates to enable estimates. No provider prices are assumed. Estimates use Kubernetes requests and assume continuous allocation (730 hours/month, 8,760 hours/year); they are not a cloud-bill guarantee. CronJob savings especially depend on actual runtime.</p>
+            <p class="help"><strong>Secret handling:</strong> enter references only, not kubeconfig or token values. Local testing supports <code>env://NAME</code>; the API worker resolves it from <code>APP_SECRET_NAME</code> in its environment.</p>
+            <div id="form-message" class="message" role="status"></div>
+            <button id="submit-button" type="submit">Start collection</button>
+            <button id="demo-button" class="demo" type="button">Load synthetic demo data</button>
+          </form>
+        </div>
+      </section>
+
+      <div style="display:grid;gap:18px;min-width:0">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Analysis</h2>
+            <button id="refresh-button" class="secondary" type="button">Refresh</button>
+          </div>
+          <div class="panel-body" id="analysis">
+            <div class="empty">Submit a collection or choose a recent run to view its analysis.</div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Recent collections</h2>
+            <button id="history-button" class="secondary" type="button">Load history</button>
+          </div>
+          <div class="panel-body">
+            <div id="history" class="history"><div class="empty" style="padding:12px">Load recent collection history.</div></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <script>
+    "use strict";
+    const form = document.querySelector("#collection-form");
+    const analysis = document.querySelector("#analysis");
+    const historyBox = document.querySelector("#history");
+    const message = document.querySelector("#form-message");
+    const submitButton = document.querySelector("#submit-button");
+    const demoButton = document.querySelector("#demo-button");
+    let activeRun = null;
+    let pollTimer = null;
+
+    function showFormMessage(text, kind) {
+      message.textContent = text;
+      message.className = `message visible ${kind}`;
+    }
+
+    function format(value, digits = 3) {
+      if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+      return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
+    }
+
+    function bytes(value) {
+      if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+      const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+      let size = Number(value), unit = 0;
+      while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+      return `${format(size, 2)} ${units[unit]}`;
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail || payload);
+        throw new Error(detail || `Request failed (${response.status})`);
+      }
+      return payload;
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submitButton.disabled = true;
+      showFormMessage("Submitting collection…", "success");
+      const data = new FormData(form);
+      const payload = Object.fromEntries(data.entries());
+      for (const key of ["daysToCollect", "stepSeconds"]) payload[key] = Number(payload[key]);
+      for (const key of ["targetUtilization", "limitHeadroomMultiplier"]) payload[key] = Number(payload[key]);
+      if (!payload.prometheusSecretRef.trim()) delete payload.prometheusSecretRef;
+      if (Boolean(payload.cpuRatePerCoreHour) !== Boolean(payload.memoryRatePerGiBHour)) {
+        showFormMessage("Enter both CPU and memory rates, or leave both blank.", "error");
+        submitButton.disabled = false;
+        return;
+      }
+      if (!payload.cpuRatePerCoreHour && !payload.memoryRatePerGiBHour) {
+        delete payload.cpuRatePerCoreHour;
+        delete payload.memoryRatePerGiBHour;
+      } else {
+        payload.cpuRatePerCoreHour = Number(payload.cpuRatePerCoreHour);
+        payload.memoryRatePerGiBHour = Number(payload.memoryRatePerGiBHour);
+      }
+      try {
+        const result = await api("/v1/collections", { method: "POST", body: JSON.stringify(payload) });
+        activeRun = { runId: result.runId };
+        showFormMessage(`Collection ${result.runId} queued. The analysis panel will update automatically.`, "success");
+        await loadRun(activeRun);
+        await loadHistory();
+        startPolling();
+      } catch (error) {
+        showFormMessage(error.message, "error");
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+
+    demoButton.addEventListener("click", async () => {
+      demoButton.disabled = true;
+      const cpuRate = form.elements.cpuRatePerCoreHour.value;
+      const memoryRate = form.elements.memoryRatePerGiBHour.value;
+      if (Boolean(cpuRate) !== Boolean(memoryRate)) {
+        showFormMessage("Enter both CPU and memory rates, or leave both blank.", "error");
+        demoButton.disabled = false;
+        return;
+      }
+      const payload = {
+        namespace: form.elements.namespace.value.trim() || "payments",
+        daysToCollect: Number(form.elements.daysToCollect.value || 7),
+        currency: form.elements.currency.value || "USD"
+      };
+      if (cpuRate && memoryRate) {
+        payload.cpuRatePerCoreHour = Number(cpuRate);
+        payload.memoryRatePerGiBHour = Number(memoryRate);
+      }
+      showFormMessage("Generating synthetic demo run…", "success");
+      try {
+        const result = await api("/v1/demo/collections", { method: "POST", body: JSON.stringify(payload) });
+        activeRun = { runId: result.runId };
+        showFormMessage("Synthetic demo created. No cluster or Prometheus connection was used.", "success");
+        await loadRun(activeRun);
+        await loadHistory();
+      } catch (error) {
+        showFormMessage(error.message, "error");
+      } finally {
+        demoButton.disabled = false;
+      }
+    });
+
+    document.querySelector("#refresh-button").addEventListener("click", async () => {
+      if (activeRun) await loadRun(activeRun);
+      else showFormMessage("Choose a recent run or submit a collection first.", "error");
+    });
+    document.querySelector("#history-button").addEventListener("click", () => loadHistory());
+
+    async function loadHistory() {
+      historyBox.textContent = "Loading…";
+      try {
+        const runs = await api("/v1/collections");
+        historyBox.replaceChildren();
+        if (!runs.length) {
+          historyBox.textContent = "No collections found for this user and organization.";
+          return;
+        }
+        for (const run of runs) {
+          const button = document.createElement("button");
+          button.type = "button";
+          const left = document.createElement("span");
+          left.textContent = `${run.namespace} · ${run.environment}`;
+          const sub = document.createElement("small");
+          sub.textContent = new Date(run.createdAt).toLocaleString();
+          left.append(sub);
+          const status = document.createElement("span");
+          status.className = `badge ${run.status}`;
+          status.textContent = run.status;
+          button.append(left, status);
+          button.addEventListener("click", () => {
+            activeRun = { runId: run.runId };
+            loadRun(activeRun);
+            startPolling();
+          });
+          historyBox.append(button);
+        }
+      } catch (error) {
+        historyBox.textContent = error.message;
+      }
+    }
+
+    async function loadRun(run) {
+      try {
+        const status = await api(`/v1/collections/${encodeURIComponent(run.runId)}`);
+        if (status.status !== "completed") {
+          renderPending(status);
+          if (status.status === "failed") stopPolling();
+          return;
+        }
+        const aggregates = await api(`/v1/collections/${encodeURIComponent(run.runId)}/aggregates`);
+        renderResults(status, aggregates);
+        stopPolling();
+      } catch (error) {
+        analysis.replaceChildren();
+        const el = document.createElement("div");
+        el.className = "message visible error";
+        el.textContent = error.message;
+        analysis.append(el);
+      }
+    }
+
+    function renderPending(status) {
+      analysis.replaceChildren();
+      const top = document.createElement("div");
+      top.className = "run-top";
+      const badge = document.createElement("span");
+      badge.className = `badge ${status.status}`;
+      badge.textContent = status.status;
+      const runId = document.createElement("span");
+      runId.className = "run-id";
+      runId.textContent = `Run ${status.runId}`;
+      top.append(badge, runId);
+      analysis.append(top);
+      const detail = document.createElement("p");
+      detail.className = status.status === "failed" ? "error-details" : "empty";
+      detail.textContent = status.status === "failed"
+        ? (status.errorMessage || "Collection failed without an error message.")
+        : "Collection is processing. This panel refreshes automatically.";
+      analysis.append(detail);
+    }
+
+    function renderResults(status, rows) {
+      analysis.replaceChildren();
+      const top = document.createElement("div");
+      top.className = "run-top";
+      const badge = document.createElement("span");
+      badge.className = "badge completed";
+      badge.textContent = "completed";
+      const runId = document.createElement("span");
+      runId.className = "run-id";
+      runId.textContent = `Run ${status.runId} · ${status.namespace} · ${status.environment} · ${status.lookbackDays} days`;
+      const exportButton = document.createElement("button");
+      exportButton.type = "button";
+      exportButton.className = "secondary";
+      exportButton.textContent = "Download Excel";
+      exportButton.addEventListener("click", () => downloadExcel(status.runId, exportButton));
+      top.append(badge, runId, exportButton);
+      analysis.append(top);
+      const exportNote = document.createElement("p");
+      exportNote.className = "export-note";
+      exportNote.textContent = "Excel includes all workload aggregates and all raw samples for this collection, regardless of the dashboard filters.";
+      analysis.append(exportNote);
+
+      if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "Collection completed, but no workload aggregates were produced.";
+        analysis.append(empty);
+        return;
+      }
+
+      const filters = document.createElement("section");
+      filters.className = "workload-filters";
+      const typeRow = document.createElement("div");
+      typeRow.className = "workload-filter-row";
+      const typeTitle = document.createElement("span");
+      typeTitle.className = "workload-filter-title";
+      typeTitle.textContent = "Workload type";
+      typeRow.append(typeTitle);
+      const types = [...new Set(rows.map(row => row.workloadType))].sort();
+      const selectedTypes = new Set(types);
+      for (const type of types) {
+        const label = document.createElement("label");
+        label.className = "type-option";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = true;
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) selectedTypes.add(type);
+          else selectedTypes.delete(type);
+          updateVisibleRows();
+        });
+        label.append(checkbox, document.createTextNode(type));
+        typeRow.append(label);
+      }
+      const nameRow = document.createElement("div");
+      nameRow.className = "workload-filter-row";
+      const nameTitle = document.createElement("label");
+      nameTitle.className = "workload-filter-title";
+      nameTitle.htmlFor = "workload-name-filter";
+      nameTitle.textContent = "Name";
+      const nameSearch = document.createElement("input");
+      nameSearch.id = "workload-name-filter";
+      nameSearch.className = "workload-search";
+      nameSearch.type = "search";
+      nameSearch.placeholder = "Search one name, or enter multiple names separated by commas";
+      nameSearch.setAttribute("aria-label", "Filter workloads by one or more names");
+      nameSearch.addEventListener("input", updateVisibleRows);
+      nameRow.append(nameTitle, nameSearch);
+      const hint = document.createElement("p");
+      hint.className = "filter-count";
+      hint.textContent = "CronJob results include usage from their associated Job runs.";
+      const results = document.createElement("div");
+      filters.append(typeRow, nameRow, hint);
+      analysis.append(filters);
+      analysis.append(results);
+
+      function updateVisibleRows() {
+        const terms = nameSearch.value.split(",").map(term => term.trim().toLowerCase()).filter(Boolean);
+        const visibleRows = rows.filter(row =>
+          selectedTypes.has(row.workloadType)
+          && (!terms.length || terms.some(term => row.workloadName.toLowerCase().includes(term)))
+        );
+        results.replaceChildren();
+        const count = document.createElement("p");
+        count.className = "filter-count";
+        count.textContent = `Showing ${visibleRows.length} of ${rows.length} workloads`;
+        results.append(count);
+
+        if (!visibleRows.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No workloads match the selected filters.";
+          results.append(empty);
+          return;
+        }
+
+        const summary = document.createElement("div");
+        summary.className = "summary";
+        const totalPods = visibleRows.reduce((sum, row) => sum + row.podCount, 0);
+        const totalSamples = visibleRows.reduce((sum, row) => sum + row.sampleCount, 0);
+        [
+          ["Workloads", `${visibleRows.length} / ${rows.length}`],
+          ["Pods observed", totalPods],
+          ["Workload time points", totalSamples.toLocaleString()],
+          ["Completed", new Date(status.completedAt).toLocaleString()]
+        ].forEach(([label, value]) => {
+          const item = document.createElement("div");
+          item.className = "metric";
+          const title = document.createElement("span");
+          title.textContent = label;
+          const number = document.createElement("strong");
+          number.textContent = value;
+          item.append(title, number);
+          summary.append(item);
+        });
+        results.append(summary, makeCostPanel(visibleRows));
+
+        const charts = document.createElement("div");
+        charts.className = "chart-grid";
+        charts.append(makeChartCard("CPU (cores)", visibleRows, [
+          { key: "peakCpuCores", label: "Peak use", color: "#2463eb" },
+          { key: "allocatedCpuRequestCores", label: "Current request", color: "#d58a15" },
+          { key: "suggestedCpuRequestCores", label: "Suggested request", color: "#128477" }
+        ], format));
+        charts.append(makeChartCard("Memory (MiB)", visibleRows, [
+          { key: "peakMemoryBytes", label: "Peak use", color: "#2463eb", convert: (v) => v / (1024 * 1024) },
+          { key: "allocatedMemoryRequestBytes", label: "Current request", color: "#d58a15", convert: (v) => v / (1024 * 1024) },
+          { key: "suggestedMemoryRequestBytes", label: "Suggested request", color: "#128477", convert: (v) => v / (1024 * 1024) }
+        ], (v) => format(v, 1)));
+        results.append(charts);
+        const heading = document.createElement("h3");
+        heading.textContent = "Workload details";
+        heading.style.cssText = "font-size:13px;margin:20px 0 8px";
+        results.append(heading, makeTable(visibleRows, status.runId));
+      }
+
+      updateVisibleRows();
+    }
+
+    async function downloadExcel(runId, button) {
+      button.disabled = true;
+      try {
+        const response = await fetch(`/v1/collections/${encodeURIComponent(runId)}/export.xlsx`);
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(typeof payload.detail === "string" ? payload.detail : `Export failed (${response.status})`);
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `resource-analysis-${runId}.xlsx`;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        const notice = document.createElement("div");
+        notice.className = "message visible error";
+        notice.textContent = error.message;
+        analysis.prepend(notice);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function currencyAmount(value, currency) {
+      return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
+    }
+
+    function makeCostPanel(rows) {
+      const section = document.createElement("section");
+      const heading = document.createElement("h3");
+      heading.textContent = "Estimated request-based cost";
+      heading.style.cssText = "font-size:13px;margin:18px 0 8px";
+      section.append(heading);
+      const estimate = rows.find(row => row.costEstimate)?.costEstimate;
+      if (!estimate) {
+        const empty = document.createElement("p");
+        empty.className = "help";
+        empty.textContent = "No rates configured for this run. Enter both CPU and memory rates under Optional cost rates and start a new collection to see monthly and yearly estimates.";
+        section.append(empty);
+        return section;
+      }
+      const totals = rows.reduce((result, row) => {
+        if (!row.costEstimate) return result;
+        for (const key of ["currentMonthly", "suggestedMonthly", "savingsMonthly", "currentYearly", "suggestedYearly", "savingsYearly"]) {
+          result[key] += row.costEstimate[key];
+        }
+        return result;
+      }, { currentMonthly: 0, suggestedMonthly: 0, savingsMonthly: 0, currentYearly: 0, suggestedYearly: 0, savingsYearly: 0 });
+      const cards = document.createElement("div");
+      cards.className = "cost-summary";
+      [
+        ["Monthly savings", totals.savingsMonthly],
+        ["Yearly savings", totals.savingsYearly],
+        ["Current monthly estimate", totals.currentMonthly]
+      ].forEach(([label, value]) => {
+        const item = document.createElement("div");
+        item.className = "metric";
+        const title = document.createElement("span");
+        title.textContent = label;
+        const amount = document.createElement("strong");
+        amount.textContent = currencyAmount(value, estimate.currency);
+        item.append(title, amount);
+        cards.append(item);
+      });
+      const note = document.createElement("p");
+      note.className = "cost-note";
+      note.textContent = `${estimate.basis}. Rates: ${currencyAmount(estimate.cpuRatePerCoreHour, estimate.currency)}/vCPU-hour and ${currencyAmount(estimate.memoryRatePerGiBHour, estimate.currency)}/GiB-hour. Uses ${estimate.monthlyHours} hours/month and ${estimate.yearlyHours} hours/year; actual cloud charges may differ.`;
+      if (rows.some(row => !row.costEstimate)) {
+        note.textContent += " Some workloads are excluded because they do not have complete usage-based recommendations.";
+      }
+      section.append(cards, note);
+      return section;
+    }
+
+    function makeChartCard(title, rows, series, formatter) {
+      const card = document.createElement("div");
+      card.className = "chart-card";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const subtitle = document.createElement("p");
+      subtitle.textContent = "Per-workload peak usage and request comparison";
+      const svg = drawChart(rows, series, formatter);
+      const legend = document.createElement("div");
+      legend.className = "legend";
+      for (const item of series) {
+        const entry = document.createElement("span");
+        const swatch = document.createElement("i");
+        swatch.style.background = item.color;
+        entry.append(swatch, document.createTextNode(item.label));
+        legend.append(entry);
+      }
+      card.append(heading, subtitle, svg, legend);
+      return card;
+    }
+
+    function drawChart(rows, series, formatter) {
+      const width = Math.max(360, rows.length * 100 + 70);
+      const height = 172, margin = { top: 12, right: 10, bottom: 47, left: 42 };
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+      const values = rows.flatMap(row => series.map(item => {
+        const value = row[item.key];
+        return value === null || value === undefined ? 0 : (item.convert ? item.convert(value) : value);
+      }));
+      const maxValue = Math.max(1, ...values) * 1.12;
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.setAttribute("class", "chart");
+      const create = (name, attrs) => {
+        const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+        for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+        svg.append(element);
+        return element;
+      };
+      for (let tick = 0; tick <= 2; tick++) {
+        const y = margin.top + plotHeight * tick / 2;
+        create("line", { x1: margin.left, y1: y, x2: width - margin.right, y2: y, stroke: "#e8edf1", "stroke-width": 1 });
+        const label = create("text", { x: margin.left - 6, y: y + 3, "text-anchor": "end", fill: "#687786", "font-size": 9 });
+        label.textContent = formatter(maxValue * (1 - tick / 2));
+      }
+      const groupWidth = plotWidth / rows.length;
+      const gap = 3;
+      const barWidth = Math.min(20, (groupWidth - 12) / series.length - gap);
+      rows.forEach((row, index) => {
+        series.forEach((item, sIndex) => {
+          const raw = row[item.key];
+          const value = raw === null || raw === undefined ? 0 : (item.convert ? item.convert(raw) : raw);
+          const barHeight = Math.max(0, value / maxValue * plotHeight);
+          const x = margin.left + index * groupWidth + (groupWidth - series.length * (barWidth + gap) + gap) / 2 + sIndex * (barWidth + gap);
+          create("rect", {
+            x, y: margin.top + plotHeight - barHeight, width: barWidth, height: barHeight,
+            rx: 2, fill: item.color
+          });
+          const tip = create("title", {});
+          tip.textContent = `${row.workloadName}: ${item.label} ${formatter(value)}`;
+          svg.lastChild.previousSibling.append(tip);
+        });
+        const name = row.workloadName.length > 12 ? `${row.workloadName.slice(0, 11)}…` : row.workloadName;
+        const label = create("text", {
+          x: margin.left + index * groupWidth + groupWidth / 2,
+          y: height - margin.bottom + 13,
+          "text-anchor": "middle", fill: "#44515e", "font-size": 9
+        });
+        label.textContent = name;
+        const type = create("text", {
+          x: margin.left + index * groupWidth + groupWidth / 2,
+          y: height - margin.bottom + 25,
+          "text-anchor": "middle", fill: "#8994a0", "font-size": 8
+        });
+        type.textContent = row.workloadType;
+      });
+      return svg;
+    }
+
+    function makeTable(rows, runId) {
+      const wrap = document.createElement("div");
+      wrap.className = "table-wrap";
+      const table = document.createElement("table");
+      const headers = ["Workload", "Pods", "Samples", "Avg CPU", "Peak CPU", "CPU req current", "CPU limit current", "CPU req suggested", "CPU limit suggested", "Avg memory", "Peak memory", "Memory req current", "Memory limit current", "Memory req suggested", "Memory limit suggested", "Monthly savings", "Yearly savings"];
+      const thead = document.createElement("thead");
+      const trHead = document.createElement("tr");
+      headers.forEach(text => { const th = document.createElement("th"); th.textContent = text; trHead.append(th); });
+      thead.append(trHead);
+      const tbody = document.createElement("tbody");
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        const values = [
+          null, row.podCount, row.sampleCount,
+          `${format(row.averageCpuCores)} cores`, `${format(row.peakCpuCores)} cores`,
+          `${format(row.allocatedCpuRequestCores)} cores`, `${format(row.allocatedCpuLimitCores)} cores`,
+          `${format(row.suggestedCpuRequestCores)} cores`, `${format(row.suggestedCpuLimitCores)} cores`,
+          bytes(row.averageMemoryBytes), bytes(row.peakMemoryBytes),
+          bytes(row.allocatedMemoryRequestBytes), bytes(row.allocatedMemoryLimitBytes),
+          bytes(row.suggestedMemoryRequestBytes), bytes(row.suggestedMemoryLimitBytes),
+          row.costEstimate ? currencyAmount(row.costEstimate.savingsMonthly, row.costEstimate.currency) : "—",
+          row.costEstimate ? currencyAmount(row.costEstimate.savingsYearly, row.costEstimate.currency) : "—"
+        ];
+        values.forEach((value, index) => {
+          const td = document.createElement("td");
+          if (index === 0) {
+            td.className = "workload";
+            const name = document.createElement("div");
+            name.textContent = `${row.workloadName} (${row.workloadType})`;
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "secondary";
+            button.style.cssText = "margin-top:6px;padding:5px 8px;font-size:10px";
+            button.textContent = "View raw samples";
+            td.append(name, button);
+          } else {
+            td.textContent = value;
+          }
+          tr.append(td);
+        });
+        tbody.append(tr);
+
+        const detailRow = document.createElement("tr");
+        detailRow.className = "raw-detail-row";
+        detailRow.hidden = true;
+        const detailCell = document.createElement("td");
+        detailCell.colSpan = headers.length;
+        detailRow.append(detailCell);
+        tbody.append(detailRow);
+        const button = tr.querySelector("button");
+        let pageOffset = 0;
+        let isOpen = false;
+        let loaded = false;
+        button.addEventListener("click", async () => {
+          isOpen = !isOpen;
+          detailRow.hidden = !isOpen;
+          button.textContent = isOpen ? "Hide raw samples" : "View raw samples";
+          if (isOpen && !loaded) {
+            loaded = await loadRawSamples(runId, row, detailCell, pageOffset, (offset) => {
+              pageOffset = offset;
+            });
+          }
+        });
+      }
+      table.append(thead, tbody);
+      wrap.append(table);
+      return wrap;
+    }
+
+    async function loadRawSamples(runId, workload, container, offset, setOffset) {
+      container.replaceChildren();
+      const loading = document.createElement("div");
+      loading.className = "raw-detail";
+      loading.textContent = "Loading raw samples…";
+      container.append(loading);
+      const params = new URLSearchParams({
+        workloadName: workload.workloadName,
+        offset: String(offset),
+        limit: "100"
+      });
+      try {
+        const page = await api(`/v1/collections/${encodeURIComponent(runId)}/raw-samples?${params}`);
+        const detail = document.createElement("div");
+        detail.className = "raw-detail";
+        const heading = document.createElement("div");
+        heading.className = "raw-detail-heading";
+        const count = document.createElement("span");
+        const first = page.total ? page.offset + 1 : 0;
+        const last = Math.min(page.offset + page.items.length, page.total);
+        count.textContent = `${page.workloadName} · ${first}–${last} of ${page.total} raw samples`;
+        const controls = document.createElement("div");
+        controls.style.cssText = "display:flex;gap:6px";
+        const previous = document.createElement("button");
+        previous.type = "button";
+        previous.className = "secondary";
+        previous.textContent = "Previous";
+        previous.disabled = page.offset === 0;
+        previous.addEventListener("click", () => {
+          const newOffset = Math.max(0, page.offset - page.limit);
+          setOffset(newOffset);
+          loadRawSamples(runId, workload, container, newOffset, setOffset);
+        });
+        const next = document.createElement("button");
+        next.type = "button";
+        next.className = "secondary";
+        next.textContent = "Next";
+        next.disabled = page.offset + page.items.length >= page.total;
+        next.addEventListener("click", () => {
+          const newOffset = page.offset + page.limit;
+          setOffset(newOffset);
+          loadRawSamples(runId, workload, container, newOffset, setOffset);
+        });
+        controls.append(previous, next);
+        heading.append(count, controls);
+        const wrap = document.createElement("div");
+        wrap.className = "table-wrap";
+        const table = document.createElement("table");
+        table.className = "raw-detail-table";
+        const headers = [
+          "Pod", "Sampled at", "CPU usage", "Memory usage", "CPU request", "CPU limit",
+          "Memory request", "Memory limit"
+        ];
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        for (const text of headers) {
+          const th = document.createElement("th");
+          th.textContent = text;
+          headRow.append(th);
+        }
+        thead.append(headRow);
+        const tbody = document.createElement("tbody");
+        for (const sample of page.items) {
+          const row = document.createElement("tr");
+          const values = [
+            sample.podName,
+            new Date(sample.sampledAt).toLocaleString(),
+            `${format(sample.cpuCores)} cores`,
+            bytes(sample.memoryBytes),
+            `${format(sample.allocatedCpuRequestCores)} cores`,
+            `${format(sample.allocatedCpuLimitCores)} cores`,
+            bytes(sample.allocatedMemoryRequestBytes),
+            bytes(sample.allocatedMemoryLimitBytes)
+          ];
+          for (const value of values) {
+            const td = document.createElement("td");
+            td.textContent = value;
+            row.append(td);
+          }
+          tbody.append(row);
+        }
+        table.append(thead, tbody);
+        wrap.append(table);
+        detail.append(heading, wrap);
+        container.replaceChildren(detail);
+        return true;
+      } catch (error) {
+        const message = document.createElement("div");
+        message.className = "message visible error";
+        message.textContent = error.message;
+        container.replaceChildren(message);
+        return false;
+      }
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = window.setInterval(() => { if (activeRun) loadRun(activeRun); }, 4000);
+    }
+    function stopPolling() {
+      if (pollTimer !== null) window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  </script>
+</body>
+</html>
