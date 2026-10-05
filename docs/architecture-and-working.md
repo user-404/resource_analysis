@@ -29,7 +29,6 @@ flowchart LR
     Worker -->|CPU and memory range queries| Prom
     API -->|Generate and persist synthetic data| DB
 ```
-![Image description](docs/mermaid-diagram.png)
 
 ### Components
 
